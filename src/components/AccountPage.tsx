@@ -9,10 +9,17 @@ import {
 
 interface AuthUser {
   id: string; email: string; username?: string; bio?: string;
-  avatar_url?: string; is_admin?: number; created_at?: number;
+  avatar_url?: string; is_admin?: number; is_owner?: boolean; created_at?: number;
 }
-interface AdminUser extends AuthUser {
-  email_verified?: number; banned?: number; ip?: string;
+interface AdminUser {
+  id: string; username?: string; is_admin?: number;
+  email_verified?: number; banned?: number; created_at?: number; is_owner?: boolean;
+}
+interface StaffMember extends AdminUser {
+  ip?: string;
+}
+interface AdminUserDetail extends AdminUser {
+  email: string; avatar_url?: string; bio?: string; ip?: string; school?: string; age?: number;
 }
 
 const THEMES = [
@@ -403,14 +410,31 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
   const [s, setS] = useState<Record<string, string>>({});
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  const [adminUsers, setAdminUsers]   = useState<AdminUser[]>([]);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminSearch, setAdminSearch] = useState("");
+  const [adminPage, setAdminPage] = useState(1);
+  const [adminTotalPages, setAdminTotalPages] = useState(1);
+  const [adminTotal, setAdminTotal] = useState(0);
+  const [adminSearchActive, setAdminSearchActive] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [adminTab, setAdminTab] = useState<"users" | "staff">("users");
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     fetch("/api/me")
       .then(r => r.json())
-      .then(d => { if (d.user) { setUser(d.user); setUsername(d.user.username || ""); setBio(d.user.bio || ""); } })
+      .then(d => {
+        if (d.user) {
+          setUser(d.user);
+          setUsername(d.user.username || "");
+          setBio(d.user.bio || "");
+          setIsOwner(!!d.user.is_owner);
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -421,14 +445,65 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
     setS(loaded);
   }, []);
 
+  const loadAdminUsers = useCallback((p: number, search?: string) => {
+    setAdminLoading(true);
+    const q = search?.trim();
+    const url = q
+      ? `/api/admin/users?search=${encodeURIComponent(q)}`
+      : `/api/admin/users?page=${p}`;
+    return fetch(url, { credentials: "include" })
+      .then(r => r.json())
+      .then(d => {
+        setAdminUsers(d.users || []);
+        setAdminSearchActive(!!d.search);
+        if (!d.search) {
+          setAdminPage(d.page || p);
+          setAdminTotalPages(d.totalPages || 1);
+          setAdminTotal(d.total || 0);
+        }
+      })
+      .finally(() => setAdminLoading(false));
+  }, []);
+
+  const loadStaff = useCallback(() => {
+    setStaffLoading(true);
+    return fetch("/api/admin/staff", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => {
+        setStaffList(d.staff || []);
+        setIsOwner(!!d.is_owner);
+      })
+      .finally(() => setStaffLoading(false));
+  }, []);
+
   useEffect(() => {
-    if (section === "admin" && user && (user.is_admin ?? 0) >= 1 && adminUsers.length === 0) {
-      setAdminLoading(true);
-      fetch("/api/admin/users").then(r => r.json())
-        .then(d => setAdminUsers(d.users || []))
-        .finally(() => setAdminLoading(false));
+    if (section === "admin" && user && (user.is_admin ?? 0) >= 1) {
+      loadAdminUsers(1);
+      loadStaff();
     }
-  }, [section, user]);
+  }, [section, user, loadAdminUsers, loadStaff]);
+
+  useEffect(() => {
+    if (section !== "admin" || !(user && (user.is_admin ?? 0) >= 1)) return;
+    const q = adminSearch.trim();
+    if (!q) return;
+    const t = setTimeout(() => loadAdminUsers(1, q), 300);
+    return () => clearTimeout(t);
+  }, [adminSearch, section, user, loadAdminUsers]);
+
+  async function openUserDetail(userId: string) {
+    setDetailLoading(true);
+    setSelectedUser(null);
+    try {
+      const r = await fetch(`/api/admin/users/${userId}`, { credentials: "include" });
+      if (r.ok) {
+        const d = await r.json();
+        setSelectedUser(d.user);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
@@ -441,7 +516,12 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
       const d = await r.json();
       if (!r.ok) setAuthErr(d.error || "Something went wrong");
       else if (authMode === "signup") { setAuthOk(d.message || "Account created! Sign in now."); setAuthMode("signin"); setPassword(""); }
-      else { setUser(d.user); setUsername(d.user.username || ""); setBio(d.user.bio || ""); }
+      else {
+        setUser(d.user);
+        setUsername(d.user.username || "");
+        setBio(d.user.bio || "");
+        setIsOwner(!!d.user.is_owner);
+      }
     } catch { setAuthErr("Network error. Please try again."); }
     finally { setAuthLoading(false); }
   }
@@ -513,22 +593,52 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
   }
 
   async function adminAction(userId: string, action: string) {
-    await fetch("/api/admin/user-action", {
+    const r = await fetch("/api/admin/user-action", {
       method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
       body: JSON.stringify({ userId, action }),
     });
-    setAdminUsers(prev => prev.map(u => {
-      if (u.id !== userId) return u;
-      if (action === "ban") return { ...u, banned: 1, email_verified: 0 };
-      if (action === "suspend") return { ...u, email_verified: 0 };
-      if (action === "promote_admin") return { ...u, is_admin: 3 };
-      if (action === "demote_admin") return { ...u, is_admin: 0 };
-      return u;
-    }).filter(u => action === "delete" ? u.id !== userId : true));
+    const d = await r.json();
+    if (!r.ok) {
+      alert(d.error || "Action failed");
+      return;
+    }
+    const patchRole = (is_admin: number) => {
+      setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, is_admin } : u));
+      setStaffList(prev => prev.map(u => u.id === userId ? { ...u, is_admin } : u)
+        .filter(u => action === "demote_admin" && is_admin === 0 ? u.id !== userId : true));
+    };
+    if (action === "ban") {
+      setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, banned: 1, email_verified: 0 } : u));
+      setStaffList(prev => prev.map(u => u.id === userId ? { ...u, banned: 1 } : u));
+    } else if (action === "unban") {
+      setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, banned: 0 } : u));
+      setStaffList(prev => prev.map(u => u.id === userId ? { ...u, banned: 0 } : u));
+    } else if (action === "suspend") {
+      setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, email_verified: 0 } : u));
+    } else if (action === "promote_admin") patchRole(3);
+    else if (action === "staff") patchRole(2);
+    else if (action === "promote_mod") patchRole(1);
+    else if (action === "demote_admin") patchRole(0);
+    else if (action === "delete") {
+      setAdminUsers(prev => prev.filter(u => u.id !== userId));
+      setStaffList(prev => prev.filter(u => u.id !== userId));
+    }
+    if (selectedUser?.id === userId) {
+      const detail = await fetch(`/api/admin/users/${userId}`, { credentials: "include" });
+      if (detail.ok) {
+        const data = await detail.json();
+        setSelectedUser(data.user);
+      } else if (action === "delete") {
+        setSelectedUser(null);
+      }
+    }
+    if (adminTab === "staff" || action.includes("promote") || action.includes("demote") || action === "staff") {
+      loadStaff();
+    }
   }
 
-  const roleLabel = (n: number) => n >= 3 ? "Admin" : n >= 2 ? "Staff" : n >= 1 ? "Mod" : "User";
-  const roleColor = (n: number) => n >= 3 ? C.accent : n >= 2 ? "hsl(270 55% 65%)" : n >= 1 ? "hsl(165 50% 52%)" : C.textMuted;
+  const roleLabel = (n: number, owner = false) => owner ? "Owner" : n >= 3 ? "Admin" : n >= 2 ? "Staff" : n >= 1 ? "Mod" : "User";
+  const roleColor = (n: number, owner = false) => owner ? "hsl(38 90% 58%)" : n >= 3 ? C.accent : n >= 2 ? "hsl(270 55% 65%)" : n >= 1 ? "hsl(165 50% 52%)" : C.textMuted;
 
   const isAdmin = (user?.is_admin ?? 0) >= 1;
   const visibleSections = NAV.filter(s => !s.adminOnly || isAdmin);
@@ -649,10 +759,10 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
           <div style={{ textAlign: "center" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
               <span style={{ fontSize: "12px", fontWeight: 600, color: C.text }}>{user.username || user.email.split("@")[0]}</span>
-              {(user.is_admin ?? 0) > 0 && (
+              {((user.is_admin ?? 0) > 0 || user.is_owner) && (
                 <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 4px", borderRadius: "4px",
-                  background: `${roleColor(user.is_admin!)}18`, color: roleColor(user.is_admin!), border: `1px solid ${roleColor(user.is_admin!)}30` }}>
-                  {roleLabel(user.is_admin!)}
+                  background: `${roleColor(user.is_admin ?? 0, user.is_owner)}18`, color: roleColor(user.is_admin ?? 0, user.is_owner), border: `1px solid ${roleColor(user.is_admin ?? 0, user.is_owner)}30` }}>
+                  {roleLabel(user.is_admin ?? 0, user.is_owner)}
                 </span>
               )}
             </div>
@@ -987,12 +1097,92 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
                   <h2 style={{ fontSize: "15px", fontWeight: 700, color: C.text, margin: 0 }}>Admin Panel</h2>
                   <span style={{ fontSize: "10px", fontWeight: 600, padding: "3px 8px", borderRadius: "6px", background: `${C.accentDim}40`, border: `1px solid ${C.borderFocus}`, color: C.accent }}>
-                    {adminUsers.length} {adminUsers.length === 1 ? "user" : "users"}
+                    {adminTab === "staff" ? `${staffList.length} team` : adminSearchActive ? `${adminUsers.length} results` : `${adminTotal} users`}
                   </span>
                 </div>
-                <p style={{ fontSize: "11px", color: C.textSub, margin: "0 0 14px" }}>Manage users and moderate content</p>
+                <p style={{ fontSize: "11px", color: C.textSub, margin: "0 0 10px" }}>
+                  {isOwner ? "Owner — manage team roles and users" : "Manage users and moderate content"}
+                </p>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
+                  {(["users", "staff"] as const).map(tab => (
+                    <button key={tab} onClick={() => setAdminTab(tab)} style={{
+                      padding: "6px 12px", borderRadius: "7px", fontSize: "11px", fontWeight: 600, cursor: "pointer",
+                      border: `1px solid ${adminTab === tab ? C.borderFocus : C.border}`,
+                      background: adminTab === tab ? C.accentDim : C.surface,
+                      color: adminTab === tab ? C.text : C.textMuted,
+                    }}>
+                      {tab === "users" ? "Users" : "Staff"}
+                    </button>
+                  ))}
+                </div>
+                {adminTab === "staff" ? (
+                  staffLoading ? (
+                    <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
+                      <Loader2 size={18} className="animate-spin" style={{ color: C.accent }} />
+                    </div>
+                  ) : staffList.length === 0 ? (
+                    <p style={{ fontSize: "11px", color: C.textMuted, textAlign: "center", padding: "24px" }}>No team members yet</p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "5px", marginBottom: "16px" }}>
+                      {staffList.map(u => (
+                        <div key={u.id} onClick={() => openUserDetail(u.id)} style={{
+                          display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", borderRadius: "9px",
+                          background: C.surface, border: `1px solid ${C.border}`, cursor: "pointer",
+                        }}>
+                          <div style={{
+                            width: "32px", height: "32px", borderRadius: "9px", flexShrink: 0,
+                            background: C.accentDim, border: `1px solid ${C.border}`,
+                            display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 700, color: C.accent,
+                          }}>
+                            {(u.username || "?")[0].toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "12px", fontWeight: 600, color: C.text }}>{u.username || "No username"}</span>
+                              <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 4px", borderRadius: "4px",
+                                background: `${roleColor(u.is_admin ?? 0, u.is_owner)}18`, color: roleColor(u.is_admin ?? 0, u.is_owner), border: `1px solid ${roleColor(u.is_admin ?? 0, u.is_owner)}30` }}>
+                                {roleLabel(u.is_admin ?? 0, u.is_owner)}
+                              </span>
+                              {u.banned ? <span style={{ fontSize: "8px", padding: "1px 4px", borderRadius: "4px", background: "hsl(0 60% 50% / 0.1)", color: C.danger }}>Banned</span> : null}
+                            </div>
+                            {u.ip && <p style={{ fontSize: "10px", color: C.textMuted, margin: "2px 0 0" }}>IP: {u.ip}</p>}
+                          </div>
+                          {isOwner && u.id !== user.id && !u.is_owner && (
+                            <div style={{ display: "flex", gap: "3px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                              {(u.is_admin ?? 0) < 1 && (
+                                <button title="Promote to Mod" onClick={() => adminAction(u.id, "promote_mod")} style={iconBtn}>
+                                  <Shield size={11} style={{ color: "hsl(165 50% 52%)" }} />
+                                </button>
+                              )}
+                              {(u.is_admin ?? 0) < 2 && (
+                                <button title="Promote to Staff" onClick={() => adminAction(u.id, "staff")} style={iconBtn}>
+                                  <Users size={11} style={{ color: "hsl(270 55% 65%)" }} />
+                                </button>
+                              )}
+                              {(u.is_admin ?? 0) < 3 && (
+                                <button title="Promote to Admin" onClick={() => adminAction(u.id, "promote_admin")} style={iconBtn}>
+                                  <ShieldCheck size={11} style={{ color: C.accent }} />
+                                </button>
+                              )}
+                              {(u.is_admin ?? 0) >= 1 && (
+                                <button title="Remove role" onClick={() => adminAction(u.id, "demote_admin")} style={iconBtn}>
+                                  <ShieldOff size={11} style={{ color: "hsl(38 75% 58%)" }} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                <>
                 <input
-                  value={adminSearch} onChange={e => setAdminSearch(e.target.value)} placeholder="Search by name or email..."
+                  value={adminSearch} onChange={e => {
+                    const v = e.target.value;
+                    setAdminSearch(v);
+                    if (!v.trim() && adminSearchActive) loadAdminUsers(1);
+                  }} placeholder="Search by name or email..."
                   style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: "8px", color: C.text, fontSize: "12px", padding: "8px 12px", outline: "none", fontFamily: "inherit", boxSizing: "border-box", marginBottom: "16px", transition: "border-color 0.15s" }}
                   onFocus={e => (e.currentTarget.style.borderColor = C.borderFocus)}
                   onBlur={e => (e.currentTarget.style.borderColor = C.border)}
@@ -1003,41 +1193,50 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                    {adminUsers.filter(u => {
-                      const q = adminSearch.toLowerCase();
-                      return !q || (u.username || "").toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-                    }).map(u => (
-                      <div key={u.id} style={{
+                    {adminUsers.map(u => (
+                      <div key={u.id} onClick={() => openUserDetail(u.id)} style={{
                         display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", borderRadius: "9px",
-                        background: C.surface, border: `1px solid ${C.border}`,
+                        background: C.surface, border: `1px solid ${C.border}`, cursor: "pointer",
                       }}>
                         <div style={{
                           width: "32px", height: "32px", borderRadius: "9px", flexShrink: 0, overflow: "hidden",
                           background: C.accentDim, border: `1px solid ${C.border}`,
                           display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 700, color: C.accent,
                         }}>
-                          {u.avatar_url ? <img src={u.avatar_url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (u.username || u.email)[0].toUpperCase()}
+                          {(u.username || "?")[0].toUpperCase()}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                            <span style={{ fontSize: "12px", fontWeight: 600, color: C.text }}>{u.username || u.email.split("@")[0]}</span>
+                            <span style={{ fontSize: "12px", fontWeight: 600, color: C.text }}>{u.username || "No username"}</span>
                             <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 4px", borderRadius: "4px",
-                              background: `${roleColor(u.is_admin ?? 0)}18`, color: roleColor(u.is_admin ?? 0), border: `1px solid ${roleColor(u.is_admin ?? 0)}30` }}>
-                              {roleLabel(u.is_admin ?? 0)}
+                              background: `${roleColor(u.is_admin ?? 0, u.is_owner)}18`, color: roleColor(u.is_admin ?? 0, u.is_owner), border: `1px solid ${roleColor(u.is_admin ?? 0, u.is_owner)}30` }}>
+                              {roleLabel(u.is_admin ?? 0, u.is_owner)}
                             </span>
                             {u.banned ? <span style={{ fontSize: "8px", padding: "1px 4px", borderRadius: "4px", background: "hsl(0 60% 50% / 0.1)", color: C.danger, border: "1px solid hsl(0 60% 50% / 0.2)" }}>Banned</span> : null}
                           </div>
-                          <p style={{ fontSize: "10px", color: C.textMuted, margin: "1px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</p>
+                          <p style={{ fontSize: "10px", color: C.textMuted, margin: "1px 0 0" }}>
+                            {u.created_at ? new Date(u.created_at).toLocaleDateString() : ""}
+                          </p>
                         </div>
-                        {u.id !== user.id && (
-                          <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
-                            {(user.is_admin ?? 0) >= 3 && (u.is_admin ?? 0) < 3 && (
+                        {u.id !== user.id && !u.is_owner && (
+                          <div style={{ display: "flex", gap: "3px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                            {isOwner && (u.is_admin ?? 0) < 1 && (
+                              <button title="Promote to Mod" onClick={() => adminAction(u.id, "promote_mod")} style={iconBtn}>
+                                <Shield size={11} style={{ color: "hsl(165 50% 52%)" }} />
+                              </button>
+                            )}
+                            {isOwner && (u.is_admin ?? 0) < 2 && (
+                              <button title="Promote to Staff" onClick={() => adminAction(u.id, "staff")} style={iconBtn}>
+                                <Users size={11} style={{ color: "hsl(270 55% 65%)" }} />
+                              </button>
+                            )}
+                            {isOwner && (u.is_admin ?? 0) < 3 && (
                               <button title="Promote to Admin" onClick={() => adminAction(u.id, "promote_admin")} style={iconBtn}>
                                 <ShieldCheck size={11} style={{ color: C.accent }} />
                               </button>
                             )}
-                            {(user.is_admin ?? 0) >= 3 && (u.is_admin ?? 0) >= 1 && (
-                              <button title="Demote to User" onClick={() => adminAction(u.id, "demote_admin")} style={iconBtn}>
+                            {isOwner && (u.is_admin ?? 0) >= 1 && (
+                              <button title="Remove role" onClick={() => adminAction(u.id, "demote_admin")} style={iconBtn}>
                                 <ShieldOff size={11} style={{ color: "hsl(38 75% 58%)" }} />
                               </button>
                             )}
@@ -1046,12 +1245,16 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
                                 <UserMinus size={11} style={{ color: "hsl(38 75% 58%)" }} />
                               </button>
                             )}
-                            {!u.banned && (
-                              <button title="Ban" onClick={() => adminAction(u.id, "ban")} style={iconBtn}>
+                            {!u.banned ? (
+                              <button title="Ban user + IP" onClick={() => adminAction(u.id, "ban")} style={iconBtn}>
                                 <Ban size={11} style={{ color: C.danger }} />
                               </button>
+                            ) : (
+                              <button title="Unban" onClick={() => adminAction(u.id, "unban")} style={iconBtn}>
+                                <Check size={11} style={{ color: "hsl(145 50% 55%)" }} />
+                              </button>
                             )}
-                            <button title="Delete user" onClick={() => { if (confirm(`Delete ${u.email}?`)) adminAction(u.id, "delete"); }} style={iconBtn}>
+                            <button title="Delete user" onClick={() => { if (confirm(`Delete ${u.username || "this user"}?`)) adminAction(u.id, "delete"); }} style={iconBtn}>
                               <Trash2 size={11} style={{ color: C.danger }} />
                             </button>
                           </div>
@@ -1060,6 +1263,66 @@ export default function AccountPage({ onNavigate }: { onNavigate: (url: string) 
                     ))}
                   </div>
                 )}
+                {adminTab === "users" && !adminSearchActive && adminTotalPages > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginTop: "14px" }}>
+                    <button disabled={adminPage <= 1 || adminLoading} onClick={() => loadAdminUsers(adminPage - 1)}
+                      style={{ padding: "6px 14px", borderRadius: "7px", border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: "11px", cursor: adminPage <= 1 ? "not-allowed" : "pointer", opacity: adminPage <= 1 ? 0.4 : 1 }}>
+                      Previous
+                    </button>
+                    <span style={{ fontSize: "10px", color: C.textMuted }}>{adminPage} / {adminTotalPages}</span>
+                    <button disabled={adminPage >= adminTotalPages || adminLoading} onClick={() => loadAdminUsers(adminPage + 1)}
+                      style={{ padding: "6px 14px", borderRadius: "7px", border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: "11px", cursor: adminPage >= adminTotalPages ? "not-allowed" : "pointer", opacity: adminPage >= adminTotalPages ? 0.4 : 1 }}>
+                      Next
+                    </button>
+                  </div>
+                )}
+                </>
+                )}
+                <AnimatePresence>
+                  {(selectedUser || detailLoading) && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      onClick={() => !detailLoading && setSelectedUser(null)}
+                      style={{ position: "fixed", inset: 0, background: "hsla(216, 50%, 4%, 0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+                      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: "100%", maxWidth: "380px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "20px" }}>
+                        {detailLoading ? (
+                          <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}>
+                            <Loader2 size={20} className="animate-spin" style={{ color: C.accent }} />
+                          </div>
+                        ) : selectedUser && (
+                          <>
+                            <h3 style={{ fontSize: "14px", fontWeight: 700, color: C.text, margin: "0 0 14px" }}>User Details</h3>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "11px" }}>
+                              {[
+                                ["Email", selectedUser.email],
+                                ["Username", selectedUser.username || "—"],
+                                ["Role", roleLabel(selectedUser.is_admin ?? 0, selectedUser.is_owner)],
+                                ["Verified", selectedUser.email_verified ? "Yes" : "No"],
+                                ["Banned", selectedUser.banned ? "Yes" : "No"],
+                                ["IP", selectedUser.ip || "—"],
+                                ["School", selectedUser.school || "—"],
+                                ["Age", selectedUser.age != null ? String(selectedUser.age) : "—"],
+                                ["Bio", selectedUser.bio || "—"],
+                                ["Joined", selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleString() : "—"],
+                                ["ID", selectedUser.id],
+                              ].map(([label, val]) => (
+                                <div key={label} style={{ display: "flex", gap: "8px" }}>
+                                  <span style={{ color: C.textMuted, minWidth: "64px", flexShrink: 0 }}>{label}</span>
+                                  <span style={{ color: C.text, wordBreak: "break-all" }}>{val}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <button onClick={() => setSelectedUser(null)}
+                              style={{ marginTop: "16px", width: "100%", padding: "8px", borderRadius: "8px", border: `1px solid ${C.border}`, background: C.elevated, color: C.text, fontSize: "12px", cursor: "pointer" }}>
+                              Close
+                            </button>
+                          </>
+                        )}
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 

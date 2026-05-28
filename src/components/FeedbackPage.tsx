@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, Heart, Trash2, Send, Loader2, Lock } from "lucide-react";
 
-interface Entry { id: string; content: string; username?: string; email?: string; user_id: string; created_at: number; }
+interface Entry { id: string; content: string; username?: string; user_id: string; created_at: number; }
 interface Comment { id: string; content: string; username?: string; avatar_url?: string; created_at: number; }
 
 function timeAgo(ts: number) {
@@ -30,6 +30,27 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
   const [newComment, setNewComment] = useState("");
   const [commentPosting, setCommentPosting] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  function loadEntries(p: number) {
+    return fetch(`/api/feedback?page=${p}`, { credentials: "include" })
+      .then(r => r.json())
+      .then(fd => {
+        const list = fd.entries || [];
+        setEntries(list);
+        setPage(fd.page || p);
+        setTotalPages(fd.totalPages || 1);
+        list.forEach((e: Entry) => {
+          fetch(`/api/likes?type=feedback&targetId=${e.id}`, { credentials: "include" })
+            .then(r => r.json())
+            .then(d => {
+              setLikeCounts(prev => ({ ...prev, [e.id]: d.count || 0 }));
+              if (d.userLiked) setLiked(prev => { const n = new Set(prev); n.add(e.id); return n; });
+            });
+        });
+      });
+  }
 
   useEffect(() => {
     fetch("/api/me")
@@ -39,18 +60,7 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
           setAuthed(true);
           setUserId(d.user.id);
           setIsAdmin((d.user.is_admin ?? 0) >= 1);
-          return fetch("/api/feedback").then(r => r.json()).then(fd => {
-            const entries = fd.entries || [];
-            setEntries(entries);
-            entries.forEach((e: Entry) => {
-              fetch(`/api/likes?type=feedback&targetId=${e.id}`, { credentials: "include" })
-                .then(r => r.json())
-                .then(d => {
-                  setLikeCounts(prev => ({ ...prev, [e.id]: d.count || 0 }));
-                  if (d.userLiked) setLiked(prev => { const n = new Set(prev); n.add(e.id); return n; });
-                });
-            });
-          });
+          return loadEntries(1);
         }
       })
       .finally(() => setLoading(false));
@@ -63,18 +73,23 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
       const r = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ content: newFeedback }),
       });
       if (r.ok) {
         const d = await r.json();
-        setEntries(p => [{ id: d.id, content: newFeedback, user_id: userId || "", created_at: Date.now() }, ...p]);
         setNewFeedback("");
+        if (d.entry) {
+          setEntries(p => [d.entry, ...p.filter(e => e.id !== d.entry.id)]);
+        } else {
+          await loadEntries(1);
+        }
       }
     } finally { setPosting(false); }
   }
 
   async function del(id: string) {
-    await fetch(`/api/feedback/${id}`, { method: "DELETE" });
+    await fetch(`/api/feedback/${id}`, { method: "DELETE", credentials: "include" });
     setEntries(p => p.filter(e => e.id !== id));
   }
 
@@ -82,6 +97,7 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
     await fetch("/api/likes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ type: "feedback", targetId: id }),
     });
     setLiked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -137,7 +153,7 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
         <div>
           <h1 className="text-sm font-bold" style={{ color: "hsl(220 15% 92%)" }}>Feedback</h1>
           <p className="text-[10px]" style={{ color: "hsl(220 15% 36%)" }}>
-            {isAdmin ? "All submissions" : "Your submissions"}
+            All submissions
           </p>
         </div>
       </div>
@@ -152,7 +168,7 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
             </div>
             <div className="text-center">
               <p className="text-sm font-medium mb-1" style={{ color: "hsl(220 15% 55%)" }}>Sign in to leave feedback</p>
-              <p className="text-xs" style={{ color: "hsl(220 15% 32%)" }}>Your account lets you track and manage your submissions</p>
+              <p className="text-xs" style={{ color: "hsl(220 15% 32%)" }}>Sign in to view and submit community feedback</p>
             </div>
             <button onClick={() => onNavigate("petezah://account")}
               className="px-5 py-2.5 rounded-xl text-sm font-semibold"
@@ -211,15 +227,24 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
                 style={{ background: "hsl(220 22% 10%)", border: "1px solid hsl(220 18% 13%)" }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    {isAdmin && (entry.username || entry.email) && (
-                      <p className="text-[10px] font-semibold mb-1.5" style={{ color: "hsl(215 85% 55%)" }}>
-                        {entry.username || entry.email}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold"
+                        style={{ background: "hsl(215 85% 38%)", color: "hsl(215 85% 88%)" }}>
+                        {(entry.username || "A")[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold leading-none" style={{ color: "hsl(215 85% 65%)" }}>
+                          {entry.username || "Anonymous"}
+                          {entry.user_id === userId && (
+                            <span className="ml-1.5 text-[9px] font-medium" style={{ color: "hsl(220 15% 42%)" }}>· you</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] mt-0.5" style={{ color: "hsl(220 15% 32%)" }}>{timeAgo(entry.created_at)}</p>
+                      </div>
+                    </div>
                     <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "hsl(220 15% 70%)" }}>
                       {entry.content}
                     </p>
-                    <p className="text-[10px] mt-2" style={{ color: "hsl(220 15% 28%)" }}>{timeAgo(entry.created_at)}</p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
                     <button onClick={() => like(entry.id)}
@@ -297,6 +322,21 @@ export default function FeedbackPage({ onNavigate }: { onNavigate: (url: string)
               </AnimatePresence>
               </motion.div>
             ))}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button disabled={page <= 1} onClick={() => { setLoading(true); loadEntries(page - 1).finally(() => setLoading(false)); }}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium disabled:opacity-30"
+                  style={{ background: "hsl(220 22% 12%)", border: "1px solid hsl(220 18% 15%)", color: "hsl(220 15% 60%)" }}>
+                  Previous
+                </button>
+                <span className="text-[10px]" style={{ color: "hsl(220 15% 35%)" }}>{page} / {totalPages}</span>
+                <button disabled={page >= totalPages} onClick={() => { setLoading(true); loadEntries(page + 1).finally(() => setLoading(false)); }}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium disabled:opacity-30"
+                  style={{ background: "hsl(220 22% 12%)", border: "1px solid hsl(220 18% 15%)", color: "hsl(220 15% 60%)" }}>
+                  Next
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

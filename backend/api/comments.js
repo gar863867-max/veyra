@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import db from '../db.js';
+import { escapeHtml, safeAvatarUrl } from '../utils/sanitize.js';
 
 function sanitizeContent(content) {
   if (typeof content !== 'string') return '';
@@ -56,7 +57,14 @@ export async function getCommentsHandler(req, res) {
   const { type, targetId } = req.query;
   if (!['changelog', 'feedback'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
   if (!targetId || typeof targetId !== 'string') return res.status(400).json({ error: 'Invalid targetId' });
-  const comments = db.prepare('SELECT c.*, u.username, u.avatar_url FROM comments c LEFT JOIN users u ON c.user_id = u.id WHERE c.type = ? AND c.target_id = ? ORDER BY c.created_at ASC').all(type, targetId);
+  const rows = db.prepare('SELECT c.*, u.username, u.avatar_url FROM comments c LEFT JOIN users u ON c.user_id = u.id WHERE c.type = ? AND c.target_id = ? ORDER BY c.created_at ASC').all(type, targetId);
+  const comments = rows.map((c) => ({
+    id: c.id,
+    content: c.content,
+    created_at: c.created_at,
+    username: escapeHtml(c.username || 'User'),
+    avatar_url: safeAvatarUrl(c.avatar_url) || '/storage/images/main/profile.png',
+  }));
   res.json({ comments });
 }
 

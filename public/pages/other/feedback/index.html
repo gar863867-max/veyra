@@ -299,6 +299,14 @@
     </div>
     <script src="/storage/js/popup.js"></script>
     <script>
+      function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+      function safeAvatarUrl(u) {
+        if (typeof u === 'string' && u.startsWith('/uploads/avatars/')) return escapeHtml(u);
+        return '/storage/images/main/profile.png';
+      }
       let isAuthenticated = !1;
       async function checkAuth() {
         try {
@@ -311,24 +319,14 @@
       async function loadFeedback() {
         try {
           const e = document.getElementById('feedback-list');
-          let t = [];
-          try {
-            const e = await fetch('/api/admin/feedback', { credentials: 'include' });
-            if (e.ok) {
-              const n = await e.json();
-              n.feedback && (t = n.feedback);
-            }
-          } catch {}
-          if (0 === t.length) {
-            const e = await fetch('/api/feedback'),
-              n = await e.json();
-            n.feedback && (t = n.feedback);
-          }
+          const e = await fetch('/api/feedback?page=1', { credentials: 'include' });
+          const n = e.ok ? await e.json() : { entries: [] };
+          const t = n.entries || [];
           t && t.length > 0
             ? (e.innerHTML = t
                 .map((e) => {
                   const t = new Date(e.created_at);
-                  return `\n              <div class="feedback-item">\n                <div class="meta">\n                  <i class="fas fa-user"></i>\n                  ${e.username || (e.email ? e.email.split('@')[0] : 'Anonymous')} • ${t.toLocaleDateString()}\n                </div>\n                <div class="content">${e.content}</div>\n                <div style="margin-top:12px;display:flex;gap:12px;">\n                  <button class="btn" style="background:#232b36;color:#3b82f6;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(59,130,246,0.04);" onclick="likeFeedback('${e.id}', this)"><i class="fa fa-thumbs-up"></i> <span class="like-count" data-id="${e.id}">0</span></button>\n                  <button class="btn" style="background:#232b36;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(139,92,246,0.04);" onclick="openCommentModal('feedback','${e.id}')"><i class="fa fa-comment" style="color:#fff;"></i></button>\n                </div>\n                <div class="comments-list" id="comments-feedback-${e.id}" style="margin-top:10px;"></div>\n              </div>\n            `;
+                  return `\n              <div class="feedback-item">\n                <div class="meta">\n                  <i class="fas fa-user"></i>\n                  ${escapeHtml(e.username || 'Anonymous')} • ${t.toLocaleDateString()}\n                </div>\n                <div class="content">${escapeHtml(e.content)}</div>\n                <div style="margin-top:12px;display:flex;gap:12px;">\n                  <button class="btn" style="background:#232b36;color:#3b82f6;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(59,130,246,0.04);" onclick="likeFeedback('${escapeHtml(e.id)}', this)"><i class="fa fa-thumbs-up"></i> <span class="like-count" data-id="${escapeHtml(e.id)}">0</span></button>\n                  <button class="btn" style="background:#232b36;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(139,92,246,0.04);" onclick="openCommentModal('feedback','${escapeHtml(e.id)}')"><i class="fa fa-comment" style="color:#fff;"></i></button>\n                </div>\n                <div class="comments-list" id="comments-feedback-${escapeHtml(e.id)}" style="margin-top:10px;"></div>\n              </div>\n            `;
                 })
                 .join(''))
             : (e.innerHTML = '<div class="empty-state">No feedback yet. Be the first to share!</div>');
@@ -371,7 +369,7 @@
               ? (t.innerHTML = e.comments
                   .map(
                     (e) =>
-                      `<div style='margin-bottom:8px;'><img src='${e.avatar_url || '/storage/images/main/profile.png'}' style='width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:6px;'><b>${e.username || 'User'}</b>: <span style='color:#fff;'>${e.content}</span></div>`
+                      `<div style='margin-bottom:8px;'><img src='${safeAvatarUrl(e.avatar_url)}' style='width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:6px;'><b>${escapeHtml(e.username || 'User')}</b>: <span style='color:#fff;'>${escapeHtml(e.content)}</span></div>`
                   )
                   .join(''))
               : (t.innerHTML = '<div style="color:#99aabb;">No comments yet.</div>');

@@ -1,16 +1,12 @@
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
+import { getClientIP } from '../utils/client-ip.js';
+import { isOwnerEmail } from '../utils/auth-roles.js';
+import { isIpBanned } from '../middleware/ip-ban.js';
 
 const requestTimestamps = new Map();
 const suspiciousIPs = new Map();
-
-function getClientIP(req) {
-  let ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.connection?.remoteAddress || null;
-  if (ip && typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
-  if (ip && ip.startsWith('::ffff:')) ip = ip.replace('::ffff:', '');
-  return ip || 'unknown';
-}
 
 function validateRequest(req, body) {
   const ip = getClientIP(req);
@@ -43,6 +39,11 @@ function validateRequest(req, body) {
 export async function signupHandler(req, res) {
   const { email, password, school, age, website } = req.body;
 
+  const clientIp = getClientIP(req);
+  if (clientIp && isIpBanned(clientIp)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
@@ -60,10 +61,10 @@ export async function signupHandler(req, res) {
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = randomUUID();
     const now = Date.now();
-    const ip = getClientIP(req);
+    const ip = clientIp || 'unknown';
 
     const isFirstUser = db.prepare('SELECT COUNT(*) AS count FROM users').get().count === 0;
-    const isAdmin = isFirstUser || email === process.env.ADMIN_EMAIL;
+    const isAdmin = isFirstUser || isOwnerEmail(email);
 
     db.prepare(`
       INSERT INTO users (id, email, password_hash, created_at, updated_at, is_admin, email_verified, school, age, ip)

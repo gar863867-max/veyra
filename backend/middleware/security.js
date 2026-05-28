@@ -229,7 +229,7 @@ export function adjustPowDifficulty(shield) {
 
 const BOT_PATTERNS = [/googlebot/i, /bingbot/i, /slurp/i, /duckduckbot/i, /baiduspider/i, /yandexbot/i, /facebookexternalhit/i, /twitterbot/i, /discordbot/i, /telegrambot/i, /whatsapp/i, /linkedinbot/i, /slackbot/i, /archive\.org_bot/i, /ia_archiver/i, /semrushbot/i, /ahrefsbot/i, /mj12bot/i, /dotbot/i];
 
-const OPEN_PATHS = new Set(['/api/signin', '/api/signup', '/api/bot-challenge', '/api/bot-verify', '/api/verify-email', '/api/me', '/api/signout', '/api/comments', '/api/likes', '/api/changelog', '/api/feedback']);
+const OPEN_PATHS = new Set(['/api/signin', '/api/signup', '/api/bot-challenge', '/api/bot-verify', '/api/verify-email', '/api/me', '/api/signout', '/api/comments', '/api/likes', '/api/changelog']);
 
 function needsToken(reqPath) {
   if (OPEN_PATHS.has(reqPath)) return false;

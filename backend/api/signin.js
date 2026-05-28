@@ -1,11 +1,19 @@
 import bcrypt from 'bcrypt';
 import db from '../db.js';
+import { isOwnerEmail } from '../utils/auth-roles.js';
+import { getClientIP } from '../utils/client-ip.js';
+import { isIpBanned } from '../middleware/ip-ban.js';
 
 const DUMMY_HASH = '$2b$10$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ12';
 
 export async function signinHandler(req, res) {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+
+  const clientIp = getClientIP(req);
+  if (clientIp && isIpBanned(clientIp)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
 
   try {
     const user = db.prepare(
@@ -24,7 +32,7 @@ export async function signinHandler(req, res) {
     if (!user.email_verified) return res.status(401).json({ error: 'Please verify your email before logging in.' });
 
     // Also treat ADMIN_EMAIL as owner (is_admin = 3)
-    const isOwner = user.email === process.env.ADMIN_EMAIL;
+    const isOwner = isOwnerEmail(user.email);
     const effectiveAdmin = isOwner ? Math.max(user.is_admin || 0, 3) : (user.is_admin || 0);
 
     // Promote owner in DB if not already
@@ -32,10 +40,7 @@ export async function signinHandler(req, res) {
       db.prepare('UPDATE users SET is_admin = 3 WHERE id = ?').run(user.id);
     }
 
-    let ip = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
-    if (ip && typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
-    if (ip && ip.startsWith('::ffff:')) ip = ip.replace('::ffff:', '');
-    if (!user.ip) db.prepare('UPDATE users SET ip = ? WHERE id = ?').run(ip, user.id);
+    if (clientIp) db.prepare('UPDATE users SET ip = ? WHERE id = ?').run(clientIp, user.id);
 
     const sessionUser = {
       id: user.id,
@@ -44,6 +49,7 @@ export async function signinHandler(req, res) {
       bio: user.bio,
       avatar_url: user.avatar_url,
       is_admin: effectiveAdmin,
+      is_owner: isOwner,
     };
 
     req.session.user = sessionUser;

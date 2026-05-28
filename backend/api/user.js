@@ -1,4 +1,6 @@
 import db from '../db.js';
+import { sanitizeUsername } from '../utils/sanitize.js';
+import { isOwnerEmail } from '../utils/auth-roles.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -13,23 +15,28 @@ export async function getMeHandler(req, res) {
   ).get(req.session.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  if (user.email === process.env.ADMIN_EMAIL && user.is_admin < 3) {
+  if (isOwnerEmail(user.email) && user.is_admin < 3) {
     db.prepare('UPDATE users SET is_admin = 3 WHERE id = ?').run(user.id);
     user.is_admin = 3;
   }
 
+  const is_owner = isOwnerEmail(user.email);
   req.session.user.is_admin = user.is_admin;
   req.session.user.username = user.username;
   req.session.user.avatar_url = user.avatar_url;
+  req.session.user.is_owner = is_owner;
 
-  res.json({ user });
+  res.json({ user: { ...user, is_owner } });
 }
 
 export async function updateProfileHandler(req, res) {
   if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
-  const { username, bio } = req.body;
-  if (username !== undefined && (typeof username !== 'string' || username.length > 32))
-    return res.status(400).json({ error: 'Invalid username' });
+  let { username, bio } = req.body;
+  if (username !== undefined) {
+    if (typeof username !== 'string') return res.status(400).json({ error: 'Invalid username' });
+    username = sanitizeUsername(username);
+    if (!username) return res.status(400).json({ error: 'Invalid username' });
+  }
   if (bio !== undefined && (typeof bio !== 'string' || bio.length > 200))
     return res.status(400).json({ error: 'Bio too long' });
 

@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'process';
 import BetterSqlite3Session from 'better-sqlite3-session-store';
 
+import { createCorsConfig, createSecurityHeaders, createUploadGuard } from './middleware/http-security.js';
 import { ddosShield } from './security/ddos-shield.js';
 import { toIPv4, systemState, createGateMiddleware, createMemoryProtection, checkCircuitBreaker, checkSystemPressure, cleanupSecurityMaps, isTrustedWS, adjustPowDifficulty } from './middleware/security.js';
 import { authLimiter, createApiLimiter, createAiLimiter, signupLimiter } from './middleware/rate-limit.js';
@@ -35,6 +36,8 @@ import { getSettingsHandler, saveSettingsHandler } from './api/settings.js';
 import { addCommentHandler, getCommentsHandler, deleteCommentHandler, cleanupMaliciousCommentsHandler } from './api/comments.js';
 import { likeHandler, getLikesHandler } from './api/likes.js';
 import { adminUserActionHandler } from './api/admin-user-action.js';
+import { getAdminUsersHandler, getAdminUserHandler, getAdminStaffHandler } from './api/admin-users.js';
+import { createIpBanMiddleware } from './middleware/ip-ban.js';
 import { getChangelogHandler, createChangelogHandler, deleteChangelogHandler } from './api/changelog.js';
 import { getFeedbackHandler, createFeedbackHandler, deleteFeedbackHandler } from './api/feedback.js';
 
@@ -46,6 +49,9 @@ dotenv.config({ path: path.join(__dirname, '.env.production') });
 
 if (!process.env.TOKEN_SECRET) throw new Error('TOKEN_SECRET must be set');
 if (!process.env.TMDB_API_KEY) throw new Error('TMDB_API_KEY must be set');
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET must be set in production');
+}
 
 const bare = createBareServer('/bare/', { websocket: { maxPayloadLength: 4096 } });
 const barePremium = createBareServer('/api/bare-premium/', { websocket: { maxPayloadLength: 4096 } });
@@ -63,28 +69,30 @@ discordClient.systemState = systemState;
 const apiLimiter = createApiLimiter(shield);
 const aiLimiter = createAiLimiter(shield);
 
+app.use(createSecurityHeaders());
 app.use(cookieParser());
 app.use(compression({ level: 6, threshold: 1024 }));
-app.use(cors({
-  origin: (origin, cb) => cb(null, origin || '*'),
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(cors(createCorsConfig()));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb', parameterLimit: 100 }));
 
 app.use(session({
   store: new SqliteStore({ client: db }),
-  secret: process.env.SESSION_SECRET || randomBytes(32).toString('hex'),
+  secret: process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? '' : randomBytes(32).toString('hex')),
   resave: false,
   saveUninitialized: false,
   name: 'session',
-  cookie: { secure: process.env.NODE_ENV === 'production' && process.env.FORCE_HTTPS === 'true', httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 },
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  },
   rolling: true
 }));
 
 app.use(createMemoryProtection(shield));
+app.use(createIpBanMiddleware());
 app.use(createGateMiddleware(shield));
 
 const AUTH_PATHS = new Set(['/api/signin', '/api/signup', '/api/bot-challenge', '/api/bot-verify', '/api/verify-email']);
@@ -94,7 +102,7 @@ app.use('/bare/', apiLimiter);
 app.use('/scram/', express.static(scramjetPath));
 app.use('/baremux/', express.static(baremuxPath));
 app.use('/epoxy/', express.static(epoxyPath));
-app.use('/uploads/', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', createUploadGuard(), express.static(path.join(__dirname, '../uploads'), { dotfiles: 'deny', index: false }));
 
 app.get('/sw.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
@@ -133,20 +141,9 @@ app.get('/api/likes', getLikesHandler);
 
 app.post('/api/admin/user-action', adminUserActionHandler);
 app.post('/api/admin/cleanup-comments', cleanupMaliciousCommentsHandler);
-app.get('/api/admin/users', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
-  const admin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.session.user.id);
-  if (!admin || admin.is_admin < 1) return res.status(403).json({ error: 'Forbidden' });
-  const users = db.prepare('SELECT id, email, username, is_admin, banned, email_verified, created_at, ip FROM users ORDER BY created_at DESC').all();
-  res.json({ users });
-});
-app.get('/api/admin/users-full', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Unauthorized' });
-  const me = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.session.user.id);
-  if (!me || me.is_admin < 1) return res.status(403).json({ error: 'Forbidden' });
-  const users = db.prepare('SELECT id, email, username, avatar_url, is_admin, email_verified, banned, created_at, ip FROM users ORDER BY created_at DESC').all();
-  res.json({ users });
-});
+app.get('/api/admin/staff', getAdminStaffHandler);
+app.get('/api/admin/users', getAdminUsersHandler);
+app.get('/api/admin/users/:id', getAdminUserHandler);
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
 const VITE_PORT = parseInt(process.env.VITE_PORT || '5173');

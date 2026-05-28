@@ -115,7 +115,14 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS banned_ips (
+    ip TEXT PRIMARY KEY,
+    banned_at INTEGER NOT NULL,
+    banned_by TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+  CREATE INDEX IF NOT EXISTS idx_users_ip ON users(ip);
   CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON user_sessions(expires_at);
 `);

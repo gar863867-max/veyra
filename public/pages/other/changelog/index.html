@@ -317,6 +317,14 @@
     </div>
     <script src="/storage/js/popup.js"></script>
     <script>
+      function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+      function safeAvatarUrl(u) {
+        if (typeof u === 'string' && u.startsWith('/uploads/avatars/')) return escapeHtml(u);
+        return '/storage/images/main/profile.png';
+      }
       let isAdmin = !1;
       async function checkAdmin() {
         try {
@@ -338,7 +346,7 @@
             ? (n.innerHTML = t.changelogs
                 .map((e) => {
                   const t = new Date(e.created_at);
-                  return `\n              <div class="changelog-item">\n                <div class="header-item">\n                  <img src="/storage/images/logo-png-removebg-preview.png" alt="PeteZah" class="author-icon">\n                  <h3>${e.title}</h3>\n                </div>\n                <div class="meta">By ${e.author_name || 'PeteZah'} • ${t.toLocaleDateString()}</div>\n                <div class="content">${e.content}</div>\n                <div style="margin-top:12px;display:flex;gap:12px;">\n                  <button class="btn" style="background:#232b36;color:#3b82f6;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(59,130,246,0.04);" onclick="likeChangelog('${e.id}', this)"><i class="fa fa-thumbs-up"></i> <span class="like-count" data-id="${e.id}">0</span></button>\n                  <button class="btn" style="background:#232b36;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(139,92,246,0.04);" onclick="openCommentModal('changelog','${e.id}')"><i class="fa fa-comment" style="color:#fff;"></i></button>\n                </div>\n                <div class="comments-list" id="comments-changelog-${e.id}" style="margin-top:10px;"></div>\n              </div>\n            `;
+                  return `\n              <div class="changelog-item">\n                <div class="header-item">\n                  <img src="/storage/images/logo-png-removebg-preview.png" alt="PeteZah" class="author-icon">\n                  <h3>${escapeHtml(e.title)}</h3>\n                </div>\n                <div class="meta">By ${escapeHtml(e.author_name || 'PeteZah')} • ${t.toLocaleDateString()}</div>\n                <div class="content">${escapeHtml(e.content)}</div>\n                <div style="margin-top:12px;display:flex;gap:12px;">\n                  <button class="btn" style="background:#232b36;color:#3b82f6;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(59,130,246,0.04);" onclick="likeChangelog('${escapeHtml(e.id)}', this)"><i class="fa fa-thumbs-up"></i> <span class="like-count" data-id="${escapeHtml(e.id)}">0</span></button>\n                  <button class="btn" style="background:#232b36;padding:4px 18px;font-size:1em;box-shadow:0 1px 4px rgba(139,92,246,0.04);" onclick="openCommentModal('changelog','${escapeHtml(e.id)}')"><i class="fa fa-comment" style="color:#fff;"></i></button>\n                </div>\n                <div class="comments-list" id="comments-changelog-${escapeHtml(e.id)}" style="margin-top:10px;"></div>\n              </div>\n            `;
                 })
                 .join(''))
             : (n.innerHTML = '<div class="empty-state">No changelog entries yet.</div>');
@@ -381,7 +389,7 @@
               ? (t.innerHTML = e.comments
                   .map(
                     (e) =>
-                      `<div style='margin-bottom:8px;'><img src='${e.avatar_url || '/storage/images/main/profile.png'}' style='width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:6px;'><b>${e.username || 'User'}</b>: <span style='color:#fff;'>${e.content}</span></div>`
+                      `<div style='margin-bottom:8px;'><img src='${safeAvatarUrl(e.avatar_url)}' style='width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:6px;'><b>${escapeHtml(e.username || 'User')}</b>: <span style='color:#fff;'>${escapeHtml(e.content)}</span></div>`
                   )
                   .join(''))
               : (t.innerHTML = '<div style="color:#99aabb;">No comments yet.</div>');
