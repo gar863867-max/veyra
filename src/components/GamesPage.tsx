@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Dices, Plus, Star, MoreVertical, X, Trash2, Share2, Copy, Check, Upload } from "lucide-react";
+import { requestSyncSoon } from "@/lib/settingsSync";
 
 const CATEGORIES = ["All", "Action", "Racing", "Strategy", "Sports", "Skill", "Shooting", "2 Player", "Io"];
 
@@ -25,19 +26,19 @@ function getCustomGames(): Game[] {
   try { const s = localStorage.getItem("customGames"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveCustomGames(games: Game[]) {
-  try { localStorage.setItem("customGames", JSON.stringify(games)); } catch {}
+  try { localStorage.setItem("customGames", JSON.stringify(games)); requestSyncSoon(); } catch {}
 }
 function getFavorites(): string[] {
   try { const s = localStorage.getItem("favoriteGames"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveFavorites(favs: string[]) {
-  try { localStorage.setItem("favoriteGames", JSON.stringify(favs)); } catch {}
+  try { localStorage.setItem("favoriteGames", JSON.stringify(favs)); requestSyncSoon(); } catch {}
 }
 function getHiddenGames(): string[] {
   try { const s = localStorage.getItem("hiddenGames"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveHiddenGames(hidden: string[]) {
-  try { localStorage.setItem("hiddenGames", JSON.stringify(hidden)); } catch {}
+  try { localStorage.setItem("hiddenGames", JSON.stringify(hidden)); requestSyncSoon(); } catch {}
 }
 
 function resolveGameUrl(url: string): string {

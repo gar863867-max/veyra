@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Puzzle, Plus, Trash2, X, Edit2, Check, AlertTriangle, Globe, Code, Power } from "lucide-react";
+import { requestSyncSoon } from "@/lib/settingsSync";
 
 export interface Extension {
   id: string;
@@ -101,7 +102,7 @@ export function getExtensions(): Extension[] {
   try { return JSON.parse(localStorage.getItem("petezah-extensions") || "[]"); } catch { return []; }
 }
 export function saveExtensions(exts: Extension[]) {
-  try { localStorage.setItem("petezah-extensions", JSON.stringify(exts)); } catch {}
+  try { localStorage.setItem("petezah-extensions", JSON.stringify(exts)); requestSyncSoon(); } catch {}
 }
 
 export function urlMatchesPattern(url: string, pattern: string): boolean {

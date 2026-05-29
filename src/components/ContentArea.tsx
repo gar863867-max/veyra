@@ -33,6 +33,7 @@ import ExtensionsPage from "./ExtensionsPage";
 import BookmarksPage from "./BookmarksPage";
 import { recordHistory } from "./HistoryPage";
 import { getExtensions, urlMatchesPattern } from "./ExtensionsPage";
+import { requestSyncSoon } from "@/lib/settingsSync";
 
 interface ContentAreaProps {
   tabs: Tab[];
@@ -392,6 +393,7 @@ function getStoredPresets(): Preset[] {
 function savePresetsToStorage(presets: Preset[]) {
   try {
     localStorage.setItem("petezah-presets", JSON.stringify(presets));
+    requestSyncSoon();
   } catch {}
 }
 

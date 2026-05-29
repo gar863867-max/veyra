@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bookmark, Plus, Trash2, X, Edit2, FolderOpen, Folder, Link, Image, ChevronDown, ChevronRight, Globe, Check } from "lucide-react";
+import { requestSyncSoon } from "@/lib/settingsSync";
 
 export interface BookmarkItem {
   id: string;
@@ -113,7 +114,7 @@ function getBookmarks(): { items: BookmarkItem[]; groups: BookmarkGroup[] } {
   return { items: [], groups: [] };
 }
 function saveBookmarks(data: { items: BookmarkItem[]; groups: BookmarkGroup[] }) {
-  try { localStorage.setItem("petezah-bookmarks", JSON.stringify(data)); } catch {}
+  try { localStorage.setItem("petezah-bookmarks", JSON.stringify(data)); requestSyncSoon(); } catch {}
 }
 
 export function addBookmark(url: string, title: string) {

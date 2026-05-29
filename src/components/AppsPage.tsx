@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Plus, Star, MoreVertical, X, Trash2, Share2, Copy, Check, Upload } from "lucide-react";
+import { requestSyncSoon } from "@/lib/settingsSync";
 
 function generateAppId(app: { label: string; url: string }) {
   return `${app.label}-${app.url}`.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase();
@@ -71,19 +72,19 @@ function getCustomApps(): App[] {
   try { const s = localStorage.getItem("customApps"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveCustomApps(apps: App[]) {
-  try { localStorage.setItem("customApps", JSON.stringify(apps)); } catch {}
+  try { localStorage.setItem("customApps", JSON.stringify(apps)); requestSyncSoon(); } catch {}
 }
 function getFavorites(): string[] {
   try { const s = localStorage.getItem("favoriteApps"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveFavorites(favs: string[]) {
-  try { localStorage.setItem("favoriteApps", JSON.stringify(favs)); } catch {}
+  try { localStorage.setItem("favoriteApps", JSON.stringify(favs)); requestSyncSoon(); } catch {}
 }
 function getHiddenApps(): string[] {
   try { const s = localStorage.getItem("hiddenApps"); return s ? JSON.parse(s) : []; } catch { return []; }
 }
 function saveHiddenApps(hidden: string[]) {
-  try { localStorage.setItem("hiddenApps", JSON.stringify(hidden)); } catch {}
+  try { localStorage.setItem("hiddenApps", JSON.stringify(hidden)); requestSyncSoon(); } catch {}
 }
 
 function FluidCanvas() {
