@@ -6,8 +6,8 @@ import { toIPv4, extractToken, verifyToken, updateIPReputation } from '../middle
 const router = Router();
 
 const coverCache = new Map();
-const COVER_CACHE_TTL = 60 * 60 * 1000;
-const COVER_CACHE_MAX = 2000;
+const COVER_CACHE_TTL = 2 * 60 * 60 * 1000;
+const COVER_CACHE_MAX = 5000;
 
 function getCoverCached(key) {
   const entry = coverCache.get(key);
@@ -24,10 +24,10 @@ function setCoverCache(key, body, headers) {
 const mochiLimiter = rateLimit({
   windowMs: 60000,
   max: (req) => {
-    if (req.session?.user?.id) return 3000;
+    if (req.session?.user?.id) return 10000;
     const token = extractToken(req);
-    if (verifyToken(token, req)) return 1500;
-    return 200;
+    if (verifyToken(token, req)) return 6000;
+    return 1000;
   },
   keyGenerator: (req) => {
     if (req.session?.user?.id) return `user:${req.session.user.id}`;
@@ -37,21 +37,24 @@ const mochiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const ref = req.headers['referer'] || '';
+    return ref.includes('/!!/') || ref.includes('/!cover!/');
+  },
   handler: (req, res) => {
-    updateIPReputation(toIPv4(null, req), -3);
+    updateIPReputation(toIPv4(null, req), -1);
     res.status(429).json({ error: 'Too many proxy requests' });
   },
 });
 
 const mochiProxy = createProxyMiddleware({
   target: 'http://localhost:3005',
-  changeOrigin: true,
+  changeOrigin: false,
   ws: false,
   on: {
     error: (err, req, res) => {
-      console.error('[mochi proxy error]', err.message);
       if (res && 'status' in res) {
-        res.status(502).send('Mochi proxy error');
+        res.status(502).send('Proxy unavailable');
       }
     },
   },
@@ -65,32 +68,26 @@ function coverCacheMiddleware(req, res, next) {
     const ct = cached.headers['content-type'];
     if (ct) res.setHeader('Content-Type', ct);
     res.setHeader('X-Cover-Cache', 'HIT');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'public, max-age=7200');
     return res.send(cached.body);
   }
-
   const chunks = [];
   const origWrite = res.write.bind(res);
   const origEnd = res.end.bind(res);
-
   res.write = (chunk, ...args) => {
     if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     return origWrite(chunk, ...args);
   };
-
   res.end = (chunk, ...args) => {
     if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     if (res.statusCode === 200 && chunks.length) {
       const body = Buffer.concat(chunks);
-      if (body.length < 2 * 1024 * 1024) {
-        setCoverCache(key, body, {
-          'content-type': res.getHeader('content-type'),
-        });
+      if (body.length < 5 * 1024 * 1024) {
+        setCoverCache(key, body, { 'content-type': res.getHeader('content-type') });
       }
     }
     return origEnd(chunk, ...args);
   };
-
   next();
 }
 
