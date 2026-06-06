@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'process';
 import BetterSqlite3Session from 'better-sqlite3-session-store';
+import httpProxy from 'http-proxy';
 
 import { createCorsConfig, createSecurityHeaders, createUploadGuard } from './middleware/http-security.js';
 import { ddosShield } from './security/ddos-shield.js';
@@ -145,13 +146,37 @@ app.get('/api/admin/staff', getAdminStaffHandler);
 app.get('/api/admin/users', getAdminUsersHandler);
 app.get('/api/admin/users/:id', getAdminUserHandler);
 
+const mochiWsProxy = httpProxy.createProxyServer({
+  target: 'http://localhost:3005',
+  ws: true,
+});
+
+mochiWsProxy.on('error', (err) => {
+  console.error('[mochi ws proxy error]', err.message);
+});
+
 const IS_DEV = process.env.NODE_ENV !== 'production';
 const VITE_PORT = parseInt(process.env.VITE_PORT || '5173');
 
 if (IS_DEV) {
   const { createProxyMiddleware } = await import('http-proxy-middleware');
+
+  app.use(['/!!/', '/!cover!/'], createProxyMiddleware({
+    target: 'http://localhost:3005',
+    changeOrigin: true,
+    ws: false,
+  }));
+
   app.use('/', createProxyMiddleware({ target: `http://localhost:${VITE_PORT}`, changeOrigin: true, ws: false }));
 } else {
+  const { createProxyMiddleware } = await import('http-proxy-middleware');
+
+  app.use(['/!!/', '/!cover!/'], createProxyMiddleware({
+    target: 'http://localhost:3005',
+    changeOrigin: true,
+    ws: false,
+  }));
+
   app.use(express.static(path.join(__dirname, '../dist')));
   app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '../dist/index.html')));
 }
@@ -172,6 +197,11 @@ server.on('upgrade', (req, socket, head) => {
   const ip = toIPv4(null, req);
 
   shield.trackRequest(ip);
+
+  if (url.startsWith('/!!/') || url.startsWith('/!cover!/')) {
+    mochiWsProxy.ws(req, socket, head);
+    return;
+  }
 
   if (checkCircuitBreaker(ip, shield)) {
     shield.incrementBlocked(ip, 'circuit_open');
@@ -244,6 +274,7 @@ process.on('unhandledRejection', reason => { shield.sendLog(`⚠️ Unhandled re
 function shutdown() {
   console.log('Shutting down...');
   if (shield.isUnderAttack) shield.endAttackAlert(systemState);
+  mochiWsProxy.close();
   server.close(() => { bare.close(); process.exit(0); });
   setTimeout(() => { bare.close(); process.exit(1); }, 5000);
 }
