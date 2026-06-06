@@ -259,4 +259,4 @@ pub const PART_2: &str = r##"";
     };
     window.__tcfapi = function(a,b,c) { if (typeof c === 'function') c(null, false); };
 })()
-</script>"##;
+</script>"##; 

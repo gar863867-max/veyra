@@ -86,4 +86,4 @@ pub async fn handle_socket(client_socket: WebSocket, target_url: String, headers
     });
 
     let _ = tokio::join!(client_to_upstream, upstream_to_client);
-}
+} 

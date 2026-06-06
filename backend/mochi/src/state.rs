@@ -40,4 +40,4 @@ pub const CDN_DOMAINS: &[&str] = &[
     "gn-math.dev",
     "fonts.googleapis.com",
     "fonts.gstatic.com",
-];
+]; 

@@ -150,4 +150,4 @@ pub async fn handle_cover_request(
     });
 
     Ok((status, safe_headers, raw_bytes).into_response())
-}
+} 

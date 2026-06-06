@@ -45,4 +45,4 @@ pub fn encode_mochi_url(url: &str) -> String {
         out.pop();
     }
     String::from_utf8(out).unwrap_or_default()
-}
+} 

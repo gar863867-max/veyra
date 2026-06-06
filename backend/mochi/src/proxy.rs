@@ -920,4 +920,4 @@ async fn fetch_and_cache(
     let stream = Body::from_stream(upstream_res.bytes_stream());
     let response = (status, safe_headers, stream).into_response();
     Ok(response)
-}
+} 
