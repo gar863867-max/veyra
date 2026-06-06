@@ -27,6 +27,7 @@ import { updateIPReputation } from './middleware/security.js';
 import challengeRouter from './routes/challenge.js';
 import aiRouter from './routes/ai.js';
 import moviesRouter from './routes/movies.js';
+import mochiRouter from './routes/mochi.js';
 import db from './db.js';
 
 import { signupHandler } from './api/signup.js';
@@ -146,6 +147,8 @@ app.get('/api/admin/staff', getAdminStaffHandler);
 app.get('/api/admin/users', getAdminUsersHandler);
 app.get('/api/admin/users/:id', getAdminUserHandler);
 
+app.use(mochiRouter);
+
 const mochiWsProxy = httpProxy.createProxyServer({
   target: 'http://localhost:3005',
   ws: true,
@@ -160,23 +163,8 @@ const VITE_PORT = parseInt(process.env.VITE_PORT || '5173');
 
 if (IS_DEV) {
   const { createProxyMiddleware } = await import('http-proxy-middleware');
-
-  app.use(['/!!/', '/!cover!/'], createProxyMiddleware({
-    target: 'http://localhost:3005',
-    changeOrigin: true,
-    ws: false,
-  }));
-
   app.use('/', createProxyMiddleware({ target: `http://localhost:${VITE_PORT}`, changeOrigin: true, ws: false }));
 } else {
-  const { createProxyMiddleware } = await import('http-proxy-middleware');
-
-  app.use(['/!!/', '/!cover!/'], createProxyMiddleware({
-    target: 'http://localhost:3005',
-    changeOrigin: true,
-    ws: false,
-  }));
-
   app.use(express.static(path.join(__dirname, '../dist')));
   app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '../dist/index.html')));
 }
